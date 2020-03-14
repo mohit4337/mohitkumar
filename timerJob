@@ -1,0 +1,883 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Microsoft.SharePoint.Administration;
+using Microsoft.SharePoint;
+using System.Data;
+using System.Reflection;
+using Microsoft.SharePoint.Utilities;
+using Oracle.ManagedDataAccess.Client;
+using System.Configuration;
+using System.Web.Configuration;
+
+namespace Employee_Details_Job
+{
+
+    /// <summary>
+    /// Get Employee data Timer job
+    /// </summary>
+    public class GetEmployeeDetails : SPJobDefinition
+    {
+        /// <summary>
+        /// Oracle Connection String variable
+        /// </summary>
+        string DBConnect_Oracle = string.Empty;
+        /// <summary>
+        /// Default Constructor
+        /// </summary>
+        
+        public GetEmployeeDetails() : base() { }
+        /// <summary>
+        /// Overloaded Constructor
+        /// </summary>
+        /// <param name="jobName"></param>
+        /// <param name="webApp"></param>
+        public GetEmployeeDetails(string jobName, SPWebApplication webApp)
+            : base(jobName, webApp, null, SPJobLockType.None)
+        {
+            this.Title = jobName;
+        }
+        /// <summary>
+        /// Timer Job Execute Method.
+        /// </summary>
+        /// <param name="targetInstanceId"></param>
+        public override void Execute(Guid targetInstanceId)
+        {
+            Configuration webAppConfig = WebConfigurationManager.OpenWebConfiguration("/", this.WebApplication.Name);
+            if (webAppConfig.AppSettings.Settings.Count > 0)
+            {
+                System.Configuration.KeyValueConfigurationElement customSetting = webAppConfig.AppSettings.Settings["DBConnect_Oracle"];
+                if (customSetting != null)
+                {
+                    DBConnect_Oracle = customSetting.Value;
+
+                }
+            }
+
+            BulkUpdateEMpData();
+            DeleteDirDeptMapping();
+            DeleteDependants();
+            DeleteQulalifcations();
+            DeleteReportingStructure();
+
+
+        }
+        /// <summary>
+        /// Update Employee Qualifications List
+        /// </summary>
+        public void DeleteQulalifcations()
+        {
+            try
+            {
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Employee Qualifications");
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder deletebuilder = new StringBuilder();
+                            deletebuilder.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+                            SPQuery query = new SPQuery();
+
+                            SPListItemCollection _oListCollection = _oList.GetItems(query);
+                            foreach (SPListItem item in _oListCollection)
+                            {
+                                deletebuilder.Append("<Method>");
+                                deletebuilder.Append("<SetList Scope=\"Request\">" + listGuid + "</SetList>");
+                                deletebuilder.Append("<SetVar Name=\"ID\">" + Convert.ToString(item.ID) + "</SetVar>");
+                                deletebuilder.Append("<SetVar Name=\"Cmd\">Delete</SetVar>");
+                                deletebuilder.Append("</Method>");
+                            }
+                            deletebuilder.Append("</Batch>");
+                            _oWeb.ProcessBatchData(deletebuilder.ToString());
+                            _oWeb.Update();
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+
+                        BulkInsertQualifications();
+
+
+
+
+
+
+                    }
+                }
+            }
+
+            catch (Exception ex)
+            {
+                throw;
+            }
+
+        }
+        /// <summary>
+        /// Delete Directorate department Mapping list
+        /// </summary>
+        public void DeleteDirDeptMapping()
+        {
+            try
+            {
+
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Mapping_Dir_Dep");
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder deletebuilder = new StringBuilder();
+                            deletebuilder.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+                            SPQuery query = new SPQuery();
+                            SPListItemCollection _oListCollection = _oList.GetItems(query);
+                            foreach (SPListItem item in _oListCollection)
+                            {
+                                deletebuilder.Append("<Method>");
+                                deletebuilder.Append("<SetList Scope=\"Request\">" + listGuid + "</SetList>");
+                                deletebuilder.Append("<SetVar Name=\"ID\">" + Convert.ToString(item.ID) + "</SetVar>");
+                                deletebuilder.Append("<SetVar Name=\"Cmd\">Delete</SetVar>");
+                                deletebuilder.Append("</Method>");
+                            }
+                            deletebuilder.Append("</Batch>");
+                            _oWeb.ProcessBatchData(deletebuilder.ToString());
+                            _oWeb.Update();
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+                        BulkInsertDirDeptMapping();
+                    }
+                }
+            }
+
+            catch (Exception ex)
+            {
+                throw;
+            }
+
+        }
+        /// <summary>
+        /// Insert Directorate department Mapping list
+        /// </summary>
+        private void BulkInsertDirDeptMapping()
+        {
+            try
+            {
+                DataTable dt = GetMasterDirdepMapping();
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Mapping_Dir_Dep");
+
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder query = new StringBuilder();
+                            query.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+                            //   string test = "SomeValue";
+                            //Building the XML and appending to StringBuilder
+                            for (int itemCount = 0; itemCount < dt.Rows.Count; itemCount++)
+                            {
+                                DataRow DR = dt.Rows[itemCount];
+
+                                query.AppendFormat("<Method ID=\"{0}\">" +
+                                "<SetList>{1}</SetList>" +
+                                "<SetVar Name=\"ID\">New</SetVar>" +
+                                "<SetVar Name=\"Cmd\">Save</SetVar>" +
+                                "<SetVar Name=\"{3}Title\">" + DR["DIRECTORATE"] + "</SetVar>" +
+                                "<SetVar Name=\"{3}DEPARTMENT\">" + DR["DEPARTMENT"] + "</SetVar>" +
+                                "</Method>", "test", listGuid, itemCount,
+
+                                "urn:schemas-microsoft-com:office:office#");
+
+                            }
+                            query.Append("</Batch>");
+                            _oWeb.ProcessBatchData(query.ToString());
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+        /// <summary>
+        /// fetch Directorate department Mapping Data from Oracle
+        /// </summary>
+        /// <returns></returns>
+        private DataTable GetMasterDirdepMapping()
+        {
+            try
+            {
+
+                OracleConnection con = new OracleConnection(DBConnect_Oracle);
+                OracleCommand cmd = new OracleCommand();
+
+                cmd.CommandText = "SELECT DisTinct Directorate, department FROM GAILINTER.ERP_HR_DAT where Directorate is not null and Directorate <> ' ' and department is not null and department <> ' '";
+
+
+
+
+                cmd.Connection = con;
+                con.Open();
+                DataTable dt = new DataTable();
+                OracleDataReader dr = cmd.ExecuteReader(CommandBehavior.CloseConnection);
+                dt.Load(dr);
+                dr.Close();
+                return dt;
+
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+        }
+        /// <summary>
+        /// Delete Reporting Strcuture and Call insert
+        /// </summary>
+        public void DeleteReportingStructure()
+        {
+            try
+            {
+
+
+
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Reporting Structure");
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder deletebuilder = new StringBuilder();
+                            deletebuilder.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+
+
+
+
+                            SPQuery query = new SPQuery();
+
+
+                            SPListItemCollection _oListCollection = _oList.GetItems(query);
+                            foreach (SPListItem item in _oListCollection)
+                            {
+                                deletebuilder.Append("<Method>");
+                                deletebuilder.Append("<SetList Scope=\"Request\">" + listGuid + "</SetList>");
+                                deletebuilder.Append("<SetVar Name=\"ID\">" + Convert.ToString(item.ID) + "</SetVar>");
+                                deletebuilder.Append("<SetVar Name=\"Cmd\">Delete</SetVar>");
+                                deletebuilder.Append("</Method>");
+                            }
+                            deletebuilder.Append("</Batch>");
+                            _oWeb.ProcessBatchData(deletebuilder.ToString());
+                            _oWeb.Update();
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+
+                        BulkInsertEmpStructure();
+
+
+
+
+
+
+                    }
+                }
+            }
+
+            catch (Exception ex)
+            {
+                throw;
+            }
+
+        }
+        /// <summary>
+        /// Inserts Dependants to list
+        /// </summary>
+        public void BulkInsertDependants()
+        {
+            try
+            {
+                DataTable dt = GetEmpDependants();
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Employee Dependants");
+
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder query = new StringBuilder();
+                            query.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+                            //   string test = "SomeValue";
+                            //Building the XML and appending to StringBuilder
+                            for (int itemCount = 0; itemCount < dt.Rows.Count; itemCount++)
+                            {
+                                DataRow DR = dt.Rows[itemCount];
+
+
+                                query.AppendFormat("<Method ID=\"{0}\">" +
+                                "<SetList>{1}</SetList>" +
+                                "<SetVar Name=\"ID\">New</SetVar>" +
+                                "<SetVar Name=\"Cmd\">Save</SetVar>" +
+                                "<SetVar Name=\"{3}Title\">" + DR["DEPEND_NAME"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#Title1\">" + DR["EMP_NO"] + "</SetVar>" +
+                           "<SetVar Name=\"urn:schemas-microsoft-com:office:office#RELATION\">" + DR["RELATION"] + "</SetVar>" +
+                            "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DOB_DEPEND\">" + DR["DOB_DEPEND"] + "</SetVar>" +
+                           "<SetVar Name=\"urn:schemas-microsoft-com:office:office#HASH_VALUE\">" + DR["HASH_VALUE"] + "</SetVar>" +
+                            "<SetVar Name=\"urn:schemas-microsoft-com:office:office#FLAG\">" + DR["FLAG"] + "</SetVar>" +
+                             "<SetVar Name=\"urn:schemas-microsoft-com:office:office#PHOTO\">" + DR["PHOTO"] + "</SetVar>" +
+                             "<SetVar Name=\"urn:schemas-microsoft-com:office:office#GENDER\">" + DR["GENDER"] + "</SetVar>" +
+                                //   "<SetVar Name=\"urn:schemas-microsoft-com:office:office#UPDATED_ON_FR_SAP\">" + SPUtility.CreateISO8601DateTimeFromSystemDateTime(DR["UPDATED_ON_FR_SAP"].ToString().ParseMyFormatDateTimeforSAPdate()) + "</SetVar>" +
+                                "</Method>", "test", listGuid, itemCount,
+                                "urn:schemas-microsoft-com:office:office#");
+
+                            }
+                            query.Append("</Batch>");
+                            string a = _oWeb.ProcessBatchData(query.ToString());
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+        /// <summary>
+        /// DeleteDependants and call Insert
+        /// </summary>
+        public void DeleteDependants()
+        {
+            try
+            {
+
+
+
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Employee Dependants");
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder deletebuilder = new StringBuilder();
+                            deletebuilder.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+
+
+
+
+                            SPQuery query = new SPQuery();
+
+
+                            SPListItemCollection _oListCollection = _oList.GetItems(query);
+                            foreach (SPListItem item in _oListCollection)
+                            {
+                                deletebuilder.Append("<Method>");
+                                deletebuilder.Append("<SetList Scope=\"Request\">" + listGuid + "</SetList>");
+                                deletebuilder.Append("<SetVar Name=\"ID\">" + Convert.ToString(item.ID) + "</SetVar>");
+                                deletebuilder.Append("<SetVar Name=\"Cmd\">Delete</SetVar>");
+                                deletebuilder.Append("</Method>");
+                            }
+                            deletebuilder.Append("</Batch>");
+                            _oWeb.ProcessBatchData(deletebuilder.ToString());
+                            _oWeb.Update();
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+
+                        BulkInsertDependants();
+
+
+
+
+
+
+                    }
+                }
+            }
+
+            catch (Exception ex)
+            {
+                throw;
+            }
+
+        }
+        /// <summary>
+        /// Fetch EMployye data from oracle
+        /// </summary>
+        /// <returns></returns>
+        public DataTable GetEmployyeData()
+        {
+            try
+            {
+
+                OracleConnection con = new OracleConnection(DBConnect_Oracle);
+                OracleCommand cmd = new OracleCommand();
+
+                cmd.CommandText = "select * from GAILINTER.ERP_HR_DAT";
+
+
+
+
+                cmd.Connection = con;
+                con.Open();
+                DataTable dt = new DataTable();
+                OracleDataReader dr = cmd.ExecuteReader(CommandBehavior.CloseConnection);
+                dt.Load(dr);
+                dr.Close();
+                return dt;
+
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+        }
+
+
+
+        /// <summary>
+        /// Fetch Employee dependants data from oracle
+        /// </summary>
+        /// <returns></returns>
+        public DataTable GetEmpDependants()
+        {
+            try
+            {
+
+                OracleConnection con = new OracleConnection(DBConnect_Oracle);
+                OracleCommand cmd = new OracleCommand();
+                cmd.CommandText = "Select * from GAILINTER.ERP_HR_DEPEND";
+                cmd.Connection = con;
+                con.Open();
+                DataTable dt = new DataTable();
+                OracleDataReader dr = cmd.ExecuteReader(CommandBehavior.CloseConnection);
+                dt.Load(dr);
+                dr.Close();
+                return dt;
+
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+        }
+        /// <summary>
+        /// Fetch Employee Reporting Strcuture data
+        /// </summary>
+        /// <returns></returns>
+        public DataTable GetEmpStructure()
+        {
+            try
+            {
+
+                OracleConnection con = new OracleConnection(DBConnect_Oracle);
+                OracleCommand cmd = new OracleCommand();
+                cmd.CommandText = "Select * from PIINTERFACE.REPORTING_STRUCTURE";
+                cmd.Connection = con;
+                con.Open();
+                DataTable dt = new DataTable();
+                OracleDataReader dr = cmd.ExecuteReader(CommandBehavior.CloseConnection);
+                dt.Load(dr);
+                dr.Close();
+                return dt;
+
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+        }
+        /// <summary>
+        /// Get Employee Qualification from Oracle
+        /// </summary>
+        /// <returns></returns>
+        public DataTable GetEmpQualifications()
+        {
+            try
+            {
+
+                OracleConnection con = new OracleConnection(DBConnect_Oracle);
+                OracleCommand cmd = new OracleCommand();
+                cmd.CommandText = "Select * from GAILINTER.ERP_HR_QLF";
+                cmd.Connection = con;
+                con.Open();
+                DataTable dt = new DataTable();
+                OracleDataReader dr = cmd.ExecuteReader(CommandBehavior.CloseConnection);
+                dt.Load(dr);
+                dr.Close();
+                return dt;
+
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Bulk insert Employee Data to EMployye_Details List
+        /// </summary>
+        /// <param name="InsertTable"></param>
+        public void BulkInsertEMployeeData(DataTable InsertTable)
+        {
+            try
+            {
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Employee_Details");
+
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder query = new StringBuilder();
+                            query.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+                            string test = "SomeValue";
+                            //Building the XML and appending to StringBuilder
+                            for (int itemCount = 0; itemCount < InsertTable.Rows.Count; itemCount++)
+                            {
+                                DataRow DR = InsertTable.Rows[itemCount];
+                                query.AppendFormat("<Method ID=\"{0}\">" +
+                                "<SetList>{1}</SetList>" +
+                                "<SetVar Name=\"ID\">New</SetVar>" +
+                                "<SetVar Name=\"Cmd\">Save</SetVar>" +
+                                "<SetVar Name=\"{3}EMP_NO\">" + DR["EMP_NO"] + "</SetVar>" +
+                                "<SetVar Name=\"{3}EMP_NAME\">" + DR["EMP_NAME"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#EMP_NAME\">" + DR["EMP_NAME"] + "</SetVar>" +
+                               "<SetVar Name=\"urn:schemas-microsoft-com:office:office#GRADE\">" + DR["GRADE"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DESIGNATION\">" + DR["DESIGNATION"] + "</SetVar>" +
+                               "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DEPARTMENT\">" + DR["DEPARTMENT"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_BIRTH\">" + DR["DATE_OF_BIRTH"] + "</SetVar>" +
+                              //   "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_BIRTH\">" + SPUtility.CreateISO8601DateTimeFromSystemDateTime(DR["DATE_OF_BIRTH"].ToString().ParseMyFormatDateTime()) + "</SetVar>" +
+                              "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DIRECTORATE\">" + DR["DIRECTORATE"] + "</SetVar>" +
+                              "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DISCIPLINE\">" + DR["DISCIPLINE"] + "</SetVar>" +
+                               "<SetVar Name=\"urn:schemas-microsoft-com:office:office#FUNCTION\">" + DR["FUNCTION"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#SUB_FUNCTION\">" + DR["SUB_FUNCTION"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#GENDER\">" + DR["GENDER"] + "</SetVar>" +
+                               "<SetVar Name=\"urn:schemas-microsoft-com:office:office#REPORTING_OFFICER\">" + DR["REPORTING_OFFICER"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#REVIEWING_OFFICER\">" + DR["REVIEWING_OFFICER"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#ACCEPTING_OFFICER\">" + DR["ACCEPTING_OFFICER"] + "</SetVar>" +
+
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#BLOOD_GROUP\">" + DR["BLOOD_GROUP"] + "</SetVar>" +
+                              "<SetVar Name=\"urn:schemas-microsoft-com:office:office#CATEGORY\">" + DR["CATEGORY"] + "</SetVar>" +
+                              "<SetVar Name=\"urn:schemas-microsoft-com:office:office#LOCATION\">" + DR["Location"] + "</SetVar>" +
+                                  "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DOJ_EXISTING_LOCATION\">" + DR["DOJ_EXISTING_LOCATION"] + "</SetVar>" +
+
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#JOINING_GRADE\">" + DR["JOINING_GRADE"] + "</SetVar>" +
+                                  "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_PRESENT_GRADE\">" + DR["DATE_OF_PRESENT_GRADE"] + "</SetVar>" +
+                                  "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_ENTRY_EXECUTIV\">" + DR["DATE_OF_ENTRY_EXECUTIV"] + "</SetVar>" +
+
+                               "<SetVar Name=\"urn:schemas-microsoft-com:office:office#STATUS\">" + DR["STATUS"] + "</SetVar>" +
+
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#HASH_VALUE\">" + DR["HASH_VALUE"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#REASON_FOR_SEPARATION\">" + DR["REASON_FOR_SEPARATION"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#ORG\">" + DR["ORG"] + "</SetVar>" +
+
+
+                            "</Method>", "test", listGuid, itemCount,
+
+                                "urn:schemas-microsoft-com:office:office#");
+                            }
+                            query.Append("</Batch>");
+                            string a = _oWeb.ProcessBatchData(query.ToString());
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+        /// <summary>
+        /// Updates the Employye_Details list from Oracle Data
+        /// </summary>
+        public void BulkUpdateEMpData()
+        {
+            try
+            {
+                DataTable dt = GetEmployyeData();
+                List<int> Notfound = new List<int>();
+                DataTable dtNotfound = dt.Clone();
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Employee_Details");
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder updateBuilder = new StringBuilder();
+                            updateBuilder.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+                            for (int i = 0; i < dt.Rows.Count; i++)
+                            {
+                                DataRow DR = dt.Rows[i];
+
+
+                                SPQuery query = new SPQuery();
+                                query.Query = "<Where>" +
+                                                  "<Eq>" +
+                                                     "<FieldRef Name='EMP_NO' />" +
+                                                     "<Value Type='Text'>" + DR["EMP_NO"] + "</Value>" +
+                                                  "</Eq>" +
+                                               "</Where>";
+
+                                SPListItemCollection _oListCollection = _oList.GetItems(query);
+                                //Looping through the ListItemCollection and forming the deleteBuilder
+                                //here, we are using "Delete" as cmd
+
+                                // DateTime dt1 =d.ParseMyFormatDateTime();
+                                //   String result = DateTime.ParseExact(d, "dd.MM.yyyy", CultureInfo.InvariantCulture).ToString("MM/dd/yyyy", CultureInfo.InvariantCulture);
+
+                                if (_oListCollection.Count > 0)
+                                {
+                                    foreach (SPListItem item in _oListCollection)
+                                    {
+                                        string datetime = SPUtility.CreateISO8601DateTimeFromSystemDateTime(DateTime.Now);
+                                        updateBuilder.Append("<Method>");
+                                        updateBuilder.Append("<SetList Scope=\"Request\">" + listGuid + "</SetList>");
+                                        updateBuilder.Append("<SetVar Name=\"ID\">" + Convert.ToString(item.ID) + "</SetVar>");
+                                        //Column1 is my column Name , which I am updating here.
+                                        //If we want to update another columns we need to add here.
+                                        //here urn:schemas-microsoft-com:office:office# is STATIC TEXT
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#EMP_NAME\">" + DR["EMP_NAME"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#GRADE\">" + DR["GRADE"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DESIGNATION\">" + DR["DESIGNATION"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DEPARTMENT\">" + DR["DEPARTMENT"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_BIRTH\">" + DR["DATE_OF_BIRTH"] + "</SetVar>");
+                                        //   updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_BIRTH\">" + SPUtility.CreateISO8601DateTimeFromSystemDateTime(DR["DATE_OF_BIRTH"].ToString().ParseMyFormatDateTime()) + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_JOINING\">" + DR["DATE_OF_JOINING"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DIRECTORATE\">" + DR["DIRECTORATE"] + "</SetVar>");
+
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DISCIPLINE\">" + DR["DISCIPLINE"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#FUNCTION\">" + DR["FUNCTION"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#SUB_FUNCTION\">" + DR["SUB_FUNCTION"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#GENDER\">" + DR["GENDER"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#REPORTING_OFFICER\">" + DR["REPORTING_OFFICER"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#REVIEWING_OFFICER\">" + DR["REVIEWING_OFFICER"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#ACCEPTING_OFFICER\">" + DR["ACCEPTING_OFFICER"] + "</SetVar>");
+
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#BLOOD_GROUP\">" + DR["BLOOD_GROUP"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#CATEGORY\">" + DR["CATEGORY"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#LOCATION\">" + DR["Location"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DOJ_EXISTING_LOCATION\">" + DR["DOJ_EXISTING_LOCATION"] + "</SetVar>");
+
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#JOINING_GRADE\">" + DR["JOINING_GRADE"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_PRESENT_GRADE\">" + DR["DATE_OF_PRESENT_GRADE"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#DATE_OF_ENTRY_EXECUTIV\">" + DR["DATE_OF_ENTRY_EXECUTIV"] + "</SetVar>");
+
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#STATUS\">" + DR["STATUS"] + "</SetVar>");
+
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#HASH_VALUE\">" + DR["HASH_VALUE"] + "</SetVar>");
+
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#REASON_FOR_SEPARATION\">" + DR["REASON_FOR_SEPARATION"] + "</SetVar>");
+                                        updateBuilder.Append("<SetVar Name=\"urn:schemas-microsoft-com:office:office#ORG\">" + DR["ORG"] + "</SetVar>");
+
+
+                                        updateBuilder.Append("<SetVar Name=\"Cmd\">Save</SetVar>");
+                                        updateBuilder.Append("</Method>");
+
+                                    }
+                                }
+                                else
+                                {
+                                    Notfound.Add(Convert.ToInt32(DR["EMP_NO"]));
+                                    dtNotfound.ImportRow(DR);
+                                }
+                            }
+
+
+                            updateBuilder.Append("</Batch>");
+                            string s = _oWeb.ProcessBatchData(updateBuilder.ToString());
+                            _oWeb.Update();
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+                    }
+
+                }
+
+                BulkInsertEMployeeData(dtNotfound);
+            }
+
+            catch (Exception ex)
+            {
+                throw;
+            }
+
+        }
+
+        /// <summary>
+        /// Insert EMployee Reporting Structure
+        /// </summary>
+        public void BulkInsertEmpStructure()
+        {
+            try
+            {
+                DataTable dt = GetEmpStructure();
+                using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+                {
+                    using (SPWeb _oWeb = _oSite.OpenWeb())
+                    {
+                        SPList _oList = _oWeb.Lists.TryGetList("Reporting Structure");
+
+                        if (_oList != null)
+                        {
+                            _oWeb.AllowUnsafeUpdates = true;
+                            Guid listGuid = _oList.ID;
+                            StringBuilder query = new StringBuilder();
+                            query.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+                            //   string test = "SomeValue";
+                            //Building the XML and appending to StringBuilder
+                            for (int itemCount = 0; itemCount < dt.Rows.Count; itemCount++)
+                            {
+                                DataRow DR = dt.Rows[itemCount];
+
+                                query.AppendFormat("<Method ID=\"{0}\">" +
+                                "<SetList>{1}</SetList>" +
+                                "<SetVar Name=\"ID\">New</SetVar>" +
+                                "<SetVar Name=\"Cmd\">Save</SetVar>" +
+                                "<SetVar Name=\"{3}Title\">" + DR["EMP_NO"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#REPORTING_EMP_NO\">" + DR["REPORTING_EMP_NO"] + "</SetVar>" +
+                                "<SetVar Name=\"urn:schemas-microsoft-com:office:office#UPDATED_ON_FR_SAP\">" + SPUtility.CreateISO8601DateTimeFromSystemDateTime(DR["UPDATED_ON_FR_SAP"].ToString().ParseMyFormatDateTimeforSAPdate()) + "</SetVar>" +
+                                "</Method>", "test", listGuid, itemCount,
+                                "urn:schemas-microsoft-com:office:office#");
+
+                            }
+                            query.Append("</Batch>");
+                            string a = _oWeb.ProcessBatchData(query.ToString());
+                            _oWeb.AllowUnsafeUpdates = false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+        /// <summary>
+        /// Insert Qualifications to Lists
+        /// </summary>
+        private void BulkInsertQualifications()
+        {
+
+            DataTable dt = GetEmpQualifications();
+            using (SPSite _oSite = new SPSite(this.WebApplication.Sites["sites/GailSPIntranet"].Url))
+            {
+                using (SPWeb _oWeb = _oSite.OpenWeb())
+                {
+                    SPList _oList = _oWeb.Lists.TryGetList("Employee Qualifications");
+
+                    if (_oList != null)
+                    {
+                        _oWeb.AllowUnsafeUpdates = true;
+                        Guid listGuid = _oList.ID;
+                        StringBuilder query = new StringBuilder();
+                        query.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Batch>");
+                        //   string test = "SomeValue";
+                        //Building the XML and appending to StringBuilder
+                        for (int itemCount = 0; itemCount < dt.Rows.Count; itemCount++)
+                        {
+                            DataRow DR = dt.Rows[itemCount];
+                            if (!DR["INSTITUTE"].ToString().Contains('<') || !DR["INSTITUTE"].ToString().Contains('>'))
+                            {
+                                query.AppendFormat("<Method ID=\"{0}\">" +
+                            "<SetList>{1}</SetList>" +
+                            "<SetVar Name=\"ID\">New</SetVar>" +
+                            "<SetVar Name=\"Cmd\">Save</SetVar>" +
+                            "<SetVar Name=\"{3}Title\">" + DR["CERTIFICATE"] + "</SetVar>" +
+                           "<SetVar Name=\"urn:schemas-microsoft-com:office:office#EMP_NO\">" + DR["EMP_NO"] + "</SetVar>" +
+                       "<SetVar Name=\"urn:schemas-microsoft-com:office:office#QUALIFICATION1\">" + DR["QUALIFICATION1"] + "</SetVar>" +
+                        "<SetVar Name=\"urn:schemas-microsoft-com:office:office#QUALIFICATION2\">" + DR["QUALIFICATION2"] + "</SetVar>" +
+                       "<SetVar Name=\"urn:schemas-microsoft-com:office:office#HASH_VALUE\">" + DR["HASH_VALUE"] + "</SetVar>" +
+                        "<SetVar Name=\"urn:schemas-microsoft-com:office:office#FLAG\">" + DR["FLAG"] + "</SetVar>" +
+                          "<SetVar Name=\"urn:schemas-microsoft-com:office:office#INSTITUTE\">" + DR["INSTITUTE"] + "</SetVar>" +
+                          "<SetVar Name=\"urn:schemas-microsoft-com:office:office#PASSING_YEAR\">" + DR["PASSING_YEAR"] + "</SetVar>" +
+                          "<SetVar Name=\"urn:schemas-microsoft-com:office:office#DURATION\">" + DR["DURATION"] + "</SetVar>" +
+                          "<SetVar Name=\"urn:schemas-microsoft-com:office:office#COURSE_TYPE\">" + DR["COURSE_TYPE"] + "</SetVar>" +
+                          "<SetVar Name=\"urn:schemas-microsoft-com:office:office#UPDATED_ON_FR_SAP\">" + SPUtility.CreateISO8601DateTimeFromSystemDateTime(DR["UPDATED_ON_FR_SAP"].ToString().ParseMyFormatDateTimeforSAPdate()) + "</SetVar>" +
+                            "</Method>", "test", listGuid, itemCount,
+                            "urn:schemas-microsoft-com:office:office#");
+                            }
+
+                        }
+                        query.Append("</Batch>");
+                        string a = _oWeb.ProcessBatchData(query.ToString());
+                        _oWeb.AllowUnsafeUpdates = false;
+                    }
+                }
+            }
+
+
+
+        }
+
+    }
+
+    public static class DateTimeMyFormatExtensions
+    {
+        public static string ToMyFormatString(this DateTime dt)
+        {
+            return dt.ToString("MM/dd/yyyy");
+        }
+    }
+
+    public static class StringMyDateTimeFormatExtension
+    {
+        public static DateTime ParseMyFormatDateTime(this string s)
+        {
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            return DateTime.ParseExact(s, "dd.MM.yyyy", culture);
+        }
+        public static DateTime ParseMyFormatDateTimeforSAPdate(this string s)
+        {
+            DateTime dt = new DateTime();
+            if (!string.IsNullOrWhiteSpace(s))
+            {
+                var v1 = Convert.ToDateTime(s);
+                var v2 = v1.ToString("MM/dd/yyyy");
+                var culture = System.Globalization.CultureInfo.InvariantCulture;
+                dt = DateTime.ParseExact(v2.ToString(), "MM/dd/yyyy", culture);
+            }
+            return dt;
+        }
+    }
+
+
+    public class ImportOracleDataSettings : SPPersistedObject
+    {
+        public static string SettingsName = "ArchiveFilesJobSettings";
+
+        public ImportOracleDataSettings() { }
+        public ImportOracleDataSettings(SPPersistedObject parent, Guid id)
+            : base(SettingsName, parent, id) { }
+
+    }
+
+}
+
+
