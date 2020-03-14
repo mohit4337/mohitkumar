@@ -1,0 +1,121 @@
+    using System;
+    using System.Runtime.InteropServices;
+    using System.Security.Permissions;
+    using Microsoft.SharePoint;
+    using Microsoft.SharePoint.Administration;
+
+namespace Employee_Details_Job.Features.Feature1
+{
+    /// <summary>
+    /// This class handles events raised during feature activation, deactivation, installation, uninstallation, and upgrade.
+    /// </summary>
+    /// <remarks>
+    /// The GUID attached to this class may be used during packaging and should not be modified.
+    /// </remarks>
+
+    [Guid("0d64ef6d-cc5f-4129-883b-90229663720d")]
+    public class Feature1EventReceiver : SPFeatureReceiver
+    {
+
+        const string JobName = "Get Employee Details";
+        /// <summary>
+        /// Activates Timer Job feature
+        /// </summary>
+        /// <param name="properties"></param>
+        public override void FeatureActivated(SPFeatureReceiverProperties properties)
+        {
+            try
+            {
+                SPSecurity.RunWithElevatedPrivileges(delegate ()
+                {
+                    SPWebApplication parentWebApp = (SPWebApplication)properties.Feature.Parent;
+                    DeleteExistingJob(JobName, parentWebApp);
+                    CreateJob(parentWebApp);
+                });
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+        }
+        /// <summary>
+        /// Creates Timer job
+        /// </summary>
+        /// <param name="site"></param>
+        /// <returns></returns>
+        private bool CreateJob(SPWebApplication site)
+        {
+            bool jobCreated = false;
+            try
+            {
+                GetEmployeeDetails job = new GetEmployeeDetails(JobName, site);
+                SPDailySchedule schedule = new SPDailySchedule();
+                schedule.BeginHour = 20;
+                schedule.BeginMinute = 0;
+                schedule.BeginSecond = 0;
+                schedule.EndHour = 22;
+                schedule.EndMinute = 00;
+                schedule.EndSecond = 00;
+             
+                job.Schedule = schedule;
+
+                job.Update();
+            }
+            catch (Exception)
+            {
+                return jobCreated;
+            }
+            return jobCreated;
+        }
+
+        /// <summary>
+        /// Delete the existing job 
+        /// </summary>
+        /// <param name="jobName"></param>
+        /// <param name="site"></param>
+        /// <returns></returns>
+        public bool DeleteExistingJob(string jobName, SPWebApplication site)
+        {
+            bool jobDeleted = false;
+            try
+            {
+                foreach (SPJobDefinition job in site.JobDefinitions)
+                {
+                    if (job.Name == jobName)
+                    {
+                        job.Delete();
+                        jobDeleted = true;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                return jobDeleted;
+            }
+            return jobDeleted;
+        }
+        /// <summary>
+        /// deactivates the feature
+        /// </summary>
+        /// <param name="properties"></param>
+        public override void FeatureDeactivating(SPFeatureReceiverProperties properties)
+        {
+
+            lock (this)
+            {
+                try
+                {
+                    SPSecurity.RunWithElevatedPrivileges(delegate ()
+                    {
+                        SPWebApplication parentWebApp = (SPWebApplication)properties.Feature.Parent;
+                        DeleteExistingJob(JobName, parentWebApp);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    throw ex;
+                }
+            }
+        }
+    }
+}
